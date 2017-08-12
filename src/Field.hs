@@ -1,62 +1,81 @@
+{-# LANGUAGE FlexibleInstances #-}
 module Field (
-    right, left, fromList, toList, U, U2(..), infinitize2,
+    right, left, fromList, toList, U, U2, infinitize2,
     fromList2, bound2, showAll2, size2, shift, shift2
     ) where
 import Data.Monoid ((<>))
 import Control.Comonad
+import Data.Functor.Compose
+import Data.Functor.Classes
+import Data.Distributive
+import Control.Arrow ((&&&))
+import Data.List (unfoldr)
 -- The one-dimensional "Universe"
 data U x = U [x] x [x]
 	deriving (Show,Eq)
-
--- The two-dimensional "Universe", I hope.
-data U2 x = U2 (U (U x))
-  deriving (Show,Eq)
-
+instance (Eq1 U) where
+  liftEq eq (U a b c) (U d e f) = liftEq eq a d && eq b e && liftEq eq c f
+--  deriving (Show,Eq)
+type U2 x = Compose U U x
 -- Instancing fmap for U
 instance Functor U where
 	fmap f (U a b c) = U (fmap f a) (f b) (fmap f c)
 
 right, left :: (U a) -> (U a)
-right (U a b [c]) = U [b] c (reverse a)
+right (U a b []) = U [b] c ra
+  where (c:ra) = reverse a
 right (U a b (c:cs)) = U (b:a) c cs
-left (U [a] b c) = U (reverse c) a [b]
+left (U [] b c) = U rc a [b]
+  where (a:rc) = reverse c
 left (U (a:as) b c) = U as a (b:c)
--- todo: empty lists on the sides.
 -- instances from comments http://blog.sigfpe.com/2006/12/evaluating-cellular-automata-is.html
+-- also: https://www.youtube.com/watch?v=F7F-BzOB670
 -- instancing the comonad U
+-- the tail is important
+iterateU :: (a -> a) -> (a -> a) -> a -> U a
+iterateU prev next x = U (tail $ iterate prev x) x (tail $ iterate next x)
+
 instance Comonad U where
 	extract (U _ a _) = a
-	duplicate a = U (tail $ iterate left a) a (tail $ iterate right a)
+	duplicate = iterateU left right
 
--- instancing the functor U2
-instance Functor U2 where
-	fmap f (U2 u) = U2 $ fmap (fmap f) u
+unfold :: (c -> (a,c)) -> (c -> a) -> (c -> (a,c)) -> c -> U a
+unfold prev center next x =
+   U (unfoldr (Just . prev) x) (center x) (unfoldr (Just . next) x)
+
+instance Distributive U where
+   distribute =
+      unfold (fmap (extract . left) &&& fmap left)
+             (fmap extract)
+             (fmap (extract . right) &&& fmap right)
+
 instance Monoid x => Monoid (U x) where
   mempty = U mempty mempty mempty
   mappend (U a b c) (U d e f) = U (a <> d) (b <> e) (c <> f)
--- instancing U2 as a comonad
-instance Comonad U2 where
-	extract (U2 (U _ (U _ a _) _)) = a
-	duplicate (U2 u) = fmap U2 $ U2 $ roll $ roll u where
-		iterate1 f = tail.iterate f
-		roll a = U (iterate1 (fmap left) a) a (iterate1 (fmap right) a)
-umap f (U2 x) = U2 (f x)
+instance (Comonad f, Comonad g, Distributive g) =>
+  Comonad (Compose f g) where
+        extract = extract . extract . getCompose
+        duplicate x = fmap Compose $ Compose $
+          fmap distribute $
+          duplicate $ fmap duplicate $ getCompose x
+--instance Foldable U where
+--  foldr f z x = f (extract x) (foldr f z $ right x)
+umap :: (a (b c) -> x (y z)) -> Compose a b c -> Compose x y z
+umap f = Compose . f . getCompose
+map2u :: Functor x => (a1 -> y z) -> (a (b c) -> x a1) -> Compose a b c -> Compose x y z
+map2u f g = umap $ fmap f . g
+
 
 toList :: U x -> [x]
 toList u = fmap extract $ iterate right u
 -- Auxiliary functions for shifting the one-dimensional automaton
 
-
 shift :: Int -> U x -> U x
 shift i u = (iterate (if i<0 then left else right) u) !! (abs i)
 
 shift2 :: Int -> Int -> U2 x -> U2 x
-shift2 x y = mapU2 (shift x) (shift y)
+shift2 x y = map2u (shift x) (shift y)
 
-mapU2 :: (U (U y) -> (U (U z))) -> (U x -> U y) -> U2 x -> U2 z
-mapU2 f g = umap $ f . fmap g
-map2u :: (a -> U x) -> (U (U t) -> U a) -> U2 t -> U2 x
-map2u f g = umap $ fmap f . g
 infinity :: Monoid x => U x
 infinity = U (repeat mempty) mempty (repeat mempty)
 infinitize2 :: Monoid x => U2 x -> U2 x
@@ -67,21 +86,21 @@ bound :: (Int,Int) -> U x -> U x
 bound (x,y) (U a b c) = U (take x a) b (take y c)
 
 bound2 :: ((Int, Int), (Int, Int)) -> U2 x -> U2 x
-bound2 (x, y) = mapU2 (bound x) (bound y)
+bound2 (x, y) = map2u (bound x) (bound y)
 
 size :: U x -> (Int, Int)
 size (U a _ c) = (length a, length c)
 totalsize :: U x -> Int
 totalsize = (1+).(uncurry (+)).size
 size2 :: U2 x -> ((Int, Int), (Int, Int))
-size2 (U2 x) = (size x, (size $ extract x))
+size2 (Compose x) = (size x, (size $ extract x))
 fromList :: [x] -> U x
 fromList (a:b) = right $ U [] a b
 fromList [] = error "can't make U from empty list"
 fromList2 :: [[x]] -> U2 x
-fromList2 = U2 . fromList . fmap fromList
+fromList2 = Compose . fromList . fmap fromList
 
 showAll :: Show x => U x -> String
 showAll x = concatMap show $ take (totalsize x) $ toList x
 showAll2 :: Show x => U2 x -> String
-showAll2 (U2 x) = unlines $ take (totalsize x) $ toList $ fmap showAll x
+showAll2 (Compose x) = unlines $ take (totalsize x) $ toList $ fmap showAll x

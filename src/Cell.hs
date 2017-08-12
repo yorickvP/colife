@@ -1,6 +1,7 @@
 module Cell (Binary(..), conway, wolfram) where
-import Field (U, U2(..),left,toList)
+import Field (U, left,toList)
 import Control.Comonad (extract)
+import Data.Functor.Compose
 data Binary = X | O deriving (Eq)
 instance Show Binary where
   show X = "#"
@@ -13,12 +14,12 @@ instance Monoid Binary where
   mappend _ _ = X
 
 -- Conway's game of life rule (believe it).
-conway :: U2 Binary -> Binary
-conway (U2 x) = if (self && (n== 3||n == 4)) || ((not self) && n == 3) then X else O
+conway :: Compose U U Binary -> Binary
+conway field = if (self && (n== 3||n == 4)) || ((not self) && n == 3) then X else O
   where
     around = take 3 . toList . left
     -- around (U (a:_) b (c:_)) = [a,b,c]
-    n = length $ filter alive $ concatMap around $ around x
-    self = alive $ extract (U2 x)
+    n = length $ filter alive $ concatMap around $ around $ getCompose field
+    self = alive $ extract field
 wolfram :: Int -> U Binary -> Binary
 wolfram _ = undefined

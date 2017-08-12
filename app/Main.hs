@@ -17,6 +17,7 @@ runField field = do
   threadDelay 100000
   let new = bound2 (size2 field) $ field =>> conway
   if field == new then return () else runField new
+  --runField new
 
 main :: IO ()
 main = runField glider
