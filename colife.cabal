@@ -16,7 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Lib, Cell, Field
-  build-depends:       base >= 4.7 && < 5, comonad, transformers, Stream, distributive
+  build-depends:       base >= 4.7 && < 5, comonad, transformers, Stream, distributive, terminfo, MonadRandom, random
   default-language:    Haskell2010
 
 executable life
@@ -24,7 +24,7 @@ executable life
   main-is:             Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
   build-depends:       base
-                     , colife, comonad
+                     , colife, comonad, terminfo
   default-language:    Haskell2010
 
 -- test-suite simple-test
